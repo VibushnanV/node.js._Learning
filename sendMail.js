@@ -50,7 +50,7 @@ app.post('/generateOtp',(req,res)=>{
                 await updateData(updateQuery).then((result)=>{
                     resolve({status:'success',data:otpData})
                     // const mailOptions = {
-                    //     from: 'vibush2305@gmail.com',
+                    //     from: '*******************',
                     //     to: body.email,
                     //     subject: 'Email Verification',
                     //     html:`<div><b>${otp}</b><p>is the OTP for your request.</p> </div>
