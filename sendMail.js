@@ -6,24 +6,32 @@ const bodyparser=require('body-parser')
 const cors=require('cors')
 const bcrypt=require('bcrypt')
 const joi=require('joi')
+const basicAuth = require('express-basic-auth')
 const MongoClient=require('mongodb').MongoClient
-const url = "mongodb://localhost:27017"
+const url =process.env.DB_URL
+const Auth_name=process.env.BASIC_AUTH_USERNAME
+const Auth_pass=process.env.BASIC_AUTH_PASSWORD
 app.use(bodyparser.json({}))
 app.use(bodyparser.urlencoded({
     extended:true
 }))
 app.use(cors({origin:true}))
-
+app.use(basicAuth({
+    users: {Auth_name:Auth_pass}
+}))
+const authenticationSecretKey = process.env.AUTH_SECRET_KEY
+const dataSeceretKey=process.env.DATA_SECRET_KEY
+const PORT=process.env.PORT||8080
 app.post('/generateOtp',(req,res)=>{
      return new Promise(async(resolve,reject)=>{
         let validationSchema=joi.object({
             email:joi.string().required().email()
         })
-        let body=req.body
+           let body=decryptText(req.body.encrypted,authenticationSecretKey)
         const {error,value}=validationSchema.validate(body)
         if(error){
             console.log(error)
-            reject({status:'failure',message:'Invalid Schema'})
+            resolve({status:'failure',message:'Invalid Schema'})
         }
         else{
             let getQuery={
@@ -75,20 +83,20 @@ app.post('/generateOtp',(req,res)=>{
                     //     })
                 }).catch((err)=>{
                     console.log(err)
-                    reject({status:'failure',message:'Connection Failed'})
+                    resolve({status:'failure',message:'Connection Failed'})
                 })
                }
                else{
-                reject({status:'failure',message:'No user found'})
+                resolve({status:'failure',message:'No user found'})
                }
             }).catch((err)=>{
                 console.log(err)
-                reject({status:'failure',message:'Connection Failed'})
+                resolve({status:'failure',message:'Connection Failed'})
             })
         
         }
      }).then((result)=>{
-        res.status(200).json(result)
+        res.status(200).json({encrypted:encryptText(result,authenticationSecretKey)})
      }).catch((err)=>{
         console.log(err)
         res.send(err)
@@ -101,11 +109,11 @@ app.post('/verifyOtp',(req,res)=>{
             email:joi.string().required().email(),
             otp:joi.number().required()
         })
-        let body=req.body
+        let body=decryptText(req.body.encrypted,authenticationSecretKey)
         const {error,value}=validationSchema.validate(body)
         if(error){
             console.log(error)
-            reject({status:'failure',message:'Invalid Schema'})
+            resolve({status:'failure',message:'Invalid Schema'})
         }
         else{
             let getQuery={
@@ -135,19 +143,19 @@ app.post('/verifyOtp',(req,res)=>{
                         })
                     }
                     else{
-                        reject({status:"failure", message:"Otp is wrong"})
+                        resolve({status:"failure", message:"Otp is wrong"})
                     }
                 }
                 else{
-                    reject({status:"failure", message:"Otp has been expired"})
+                    resolve({status:"failure", message:"Otp has been expired"})
                 }
                }
                else{
-                reject({status:'failure',message:'OTP verification failed'})
+                resolve({status:'failure',message:'OTP verification failed'})
                }
             }).catch((err)=>{
                 console.log(err)
-                reject({status:'failure',message:'Connection Failed'})
+                resolve({status:'failure',message:'Connection Failed'})
             })
         }
     })
@@ -291,5 +299,13 @@ function updateData(param){
         })
     })
 }
-
-app.listen((3000),()=>{console.log('server is created')})
+function encryptText(text,password) {
+    const encrypted = crypto.AES.encrypt(JSON.stringify(text), password).toString()
+    return encrypted
+}
+function decryptText(text,password) {
+    const decrypted = crypto.AES.decrypt(text, password);
+    const decryptedText = decrypted.toString(crypto.enc.Utf8);
+    return JSON.parse(decryptedText);
+}
+app.listen((PORT),()=>{console.log('server is created')})

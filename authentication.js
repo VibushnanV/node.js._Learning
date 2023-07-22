@@ -1,17 +1,29 @@
+require('dotenv').config()
 const express=require('express')
 const app=express()
 const bodyparser=require('body-parser')
 const cors=require('cors')
 const joi=require('joi')
 const bcrypt=require('bcrypt')
+const basicAuth = require('express-basic-auth')
 const MongoClient=require('mongodb').MongoClient
-const url = "mongodb://localhost:27017"
+const url =process.env.DB_URL
+const crypto=require('crypto-js')
+const Auth_name=process.env.BASIC_AUTH_USERNAME
+const Auth_pass=process.env.BASIC_AUTH_PASSWORD
 app.use(bodyparser.json({}))
 app.use(bodyparser.urlencoded({
     extended:true
 }))
 app.use(cors({origin:true}))
-
+app.use(basicAuth({
+    users: {
+        Auth_name:Auth_pass
+    }
+}))
+const authenticationSecretKey = process.env.AUTH_SECRET_KEY
+const dataSeceretKey=process.env.DATA_SECRET_KEY
+const PORT=process.env.PORT||8080
 app.post('/createUser',(req,res)=>{
     return new Promise(async(resolve,reject)=>{
     let validationSchema=joi.object({
@@ -19,15 +31,15 @@ app.post('/createUser',(req,res)=>{
         password:joi.string().required().max(15).min(8),
         email:joi.string().required().email()
     })
-    let body=req.body
+    let body=decryptText(req.body.encrypted,authenticationSecretKey)
     const{error,value}=validationSchema.validate(body)
     console.log(error,'error')
     if(error){
-        reject({message:'Invalid Details'})
+        resolve({message:'Invalid Details'})
     }
     else{
         if(body.email.split('@')[0].length<3){
-            reject({message:'email id is invalid'})
+            resolve({message:'email id is invalid'})
         }
         else{
             let filteredData=[]
@@ -38,7 +50,7 @@ app.post('/createUser',(req,res)=>{
             await getData(getQuery).then((result)=>{
                filteredData=result['data']
                if(filteredData.length){
-                reject({message:'Email ID already registered'})
+                resolve({message:'Email ID already registered'})
                }
                else{
                 bcrypt.hash(body.password,10,async(err,hash)=>{
@@ -52,7 +64,7 @@ app.post('/createUser',(req,res)=>{
                          resolve({status:"success",message:result.updatedId})
                      }).catch((err)=>{
                         console.log(err)
-                        reject({message:err})
+                        resolve({message:err})
                      })
 
                   },(err)=>{
@@ -62,14 +74,14 @@ app.post('/createUser',(req,res)=>{
 
             }).catch((err)=>{
                 console.log(err)
-                reject({status:"failure",message:err})
+                resolve({status:"failure",message:err})
             })        
         }
     }
 }).then((response)=>{
-    res.send(response)
+    res.send({encrypted:encryptText(response,authenticationSecretKey)})
 }) .catch((err)=>{
-    res.send(err)
+    res.send(encryptText(err))
 }) 
 })
 app.post('/login',(req,res)=>{
@@ -78,10 +90,10 @@ return new Promise(async(resolve,reject)=>{
         email:joi.string().email().required(),
         password:joi.string().required().min(8).max(15)
     })
-    let body=req.body
+    let body=decryptText(req.body.encrypted,authenticationSecretKey)
     const {error,value}=validationSchema.validate(body)
     if(error){
-        reject({message:'Invalid Username or Password'})
+        resolve({message:'Invalid Username or Password',status:'failure'})
     }
     else{
         let currentUser=[]
@@ -104,21 +116,21 @@ return new Promise(async(resolve,reject)=>{
                 throw err
             }
             else if(result){
-             resolve({message:'Logged in Successfully'})
+             resolve({message:'Logged in Successfully',data:currentUser,status:'success'})
             }
             else{
-                reject({message:'Password is Incorrect'})
+                resolve({message:'Password is Incorrect',status:'failure'})
             }
         })
     }
     else{
-               reject({message:'User not Found'})
+        resolve({message:'User not Found',status:'failure'})
     } 
 }
     }
            
 }).then((response)=>{
-    res.send(response)
+    res.send({encrypted:encryptText(response,authenticationSecretKey)})
 }) .catch((err)=>{
     res.send(err)
 }) 
@@ -129,10 +141,10 @@ app.post('/forgotPassword',(req,res)=>{
             email:joi.string().email().required(),
             password:joi.string().required().min(8).max(15),
         })
-        let body=req.body
+        let body=decryptText(req.body.encrypted,authenticationSecretKey)
         const {error,value}=validationSchema.validate(body)
         if(error){
-            reject({message:'Invalid Username or Password'})
+            resolve({message:'Invalid Username or Password',status:'failure'})
         }
         else{
             let getQuery={
@@ -159,19 +171,19 @@ app.post('/forgotPassword',(req,res)=>{
                         resolve({status:'success',message:result['updatedId']})
                      }).catch((err)=>{
                         console.log(err)
-                        reject({message:err})
+                        resolve({message:err,status:'failure'})
                      })
                 })
         }
         else{
-            reject({message:'User Not Found'})
+            resolve({message:'User Not Found',status:'failure'})
         }
     }
-    }).then((message)=>{
-        res.send(message)
-    }).catch((message)=>{
-        res.send(message)
-    })
+    }).then((response)=>{
+        res.send({encrypted:encryptText(response,authenticationSecretKey)})
+    }) .catch((err)=>{
+        res.send(err)
+    }) 
 })
 app.post('/changePassword',(req,res)=>{
     return new Promise(async(resolve,reject)=>{
@@ -180,10 +192,10 @@ app.post('/changePassword',(req,res)=>{
             oldPassword:joi.string().required().min(8),
             newPassword:joi.string().required().min(8),
         })
-        let body=req.body
-        const {error,value}=validationSchema.validate(value)
+        let body=decryptText(req.body.encrypted,authenticationSecretKey)
+        const {error,value}=validationSchema.validate(body)
         if(error){
-            reject({message:'Invalid Username or Password'})
+            resolve({message:'Invalid Username or Password'})
         }
         else{
             let getQuery={
@@ -191,7 +203,7 @@ app.post('/changePassword',(req,res)=>{
                 queryParam:{email:body.email}
             }
             if(body.oldPassword==body.newPassword){
-                reject({message:'Old Password and new Password both are same'})
+                resolve({message:'Old Password and new Password both are same',status:'failure'})
             }
             else{
                 let data=[]
@@ -214,24 +226,65 @@ app.post('/changePassword',(req,res)=>{
                             resolve({status:'success',message:result['updatedId']})
                          }).catch((err)=>{
                             console.log(err)
-                            reject({message:err})
+                            resolve({message:err,status:'failure'})
                          })
                     }) 
                 }
                 else{
-                    reject({message:'User Not Found'})
+                    resolve({message:'User Not Found',status:'failure'})
                 }
             }
           
         }
-    }).catch((err)=>{
-        console.log(err)
-        res.send(message)
     }).then((response)=>{
-        res.send(response)
-    })
+        res.send({encrypted:encryptText(response,authenticationSecretKey)})
+    }) .catch((err)=>{
+        res.send(err)
+    }) 
 })
-
+app.post('/deleteUser',(req,res)=>{
+    return new Promise(async(resolve,reject)=>{
+        const validationSchema=joi.object({
+            email:joi.string().required().email()
+        })
+        let body=decryptText(req.body,authenticationSecretKey)
+        const{error,value}=validationSchema.validate(body)
+        if(error){
+            resolve({message:'Please send a valid parameter',status:'failure'})
+        }
+        else{
+           let getQuery={
+            collection:"users",
+            queryParam:{email:body.email}
+           }
+           await getData(getQuery).then(async(result)=>{
+             let data=result['data']
+             if(data && data.length){
+                  let deleteQuery={
+                    collection:'users',
+                    method:'delete',
+                    id:{_id:data[0]['_id']}
+                  }
+                  await updateData(deleteQuery).catch((err)=>{
+                    console.log(err)
+            }).then((response)=>{
+                resolve({status:"success",message:"User has been deleted successfully"})  
+            })
+             }
+             else{
+                resolve({message:'No user found',status:'failure'})
+             }
+           }).catch((err)=>{
+            console.log(err)
+            resolve({message:'Something went wrong',status:'failure'})
+           })
+        }
+    }).then((response)=>{
+        res.send({encrypted:encryptText(response,authenticationSecretKey)})
+    }) .catch((err)=>{
+        res.send(err)
+    }) 
+})
 function getData(param){
     return new Promise(async(resolve,reject)=>{
         MongoClient.connect(url,(err,client)=>{
@@ -242,6 +295,8 @@ function getData(param){
                 let docRef
                 let collection=param.collection
                 let queryParam=param.queryParam
+                let sortFiled=param.sort
+                let docCount=param.limit
               const db=client.db('myDB')
               if(collection){
                 docRef=db.collection(collection)
@@ -251,8 +306,15 @@ function getData(param){
                 else{
                     docRef=docRef.find({})
                 }
+                if(sortFiled){
+                    docRef=docRef.sort(sortFiled)
+                }
+                if(docCount){
+                    docRef=docRef.limit(docCount)
+                }
                 docRef.toArray((err,result)=>{
                     if(err){
+                        client.close()
                         reject({status:"failure",message:err})
                     }
                     else{
@@ -306,6 +368,18 @@ function updateData(param){
                 reject({message:'Document Id is missing'})
                }
             }
+            else if(method=='delete'){
+                if(id){
+                docRef.deleteOne(id)
+                .then((res)=>{
+                    resolve({status:'success',deletedId:res})
+                 }).catch((err)=>{
+                    reject({status:'failure',message:err})
+                 })
+                }else{
+                    reject({message:'Document Id is missing'})
+                }
+            }
             }
             else{
                 reject({message:'No method is in param'})
@@ -318,5 +392,14 @@ function updateData(param){
         })
     })
 }
-
-app.listen((8080),()=>{console.log('server is created')})
+function encryptText(text,password) {
+    const encrypted = crypto.AES.encrypt(JSON.stringify(text), password).toString()
+    return encrypted
+}
+function decryptText(text,password) {
+    const decrypted = crypto.AES.decrypt(text, password);
+    const decryptedText = decrypted.toString(crypto.enc.Utf8);
+    return JSON.parse(decryptedText);
+}
+app.listen((PORT),()=>{console.log('server is created')})
+console.log(process.env)
