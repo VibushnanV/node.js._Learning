@@ -1,3 +1,4 @@
+require('dotenv').config()
 const nodemailer=require('nodemailer')
 const express=require('express')
 const app=express()
@@ -6,6 +7,7 @@ const bodyparser=require('body-parser')
 const cors=require('cors')
 const bcrypt=require('bcrypt')
 const joi=require('joi')
+const crypto=require('crypto-js')
 const basicAuth = require('express-basic-auth')
 const MongoClient=require('mongodb').MongoClient
 const url =process.env.DB_URL
@@ -17,7 +19,10 @@ app.use(bodyparser.urlencoded({
 }))
 app.use(cors({origin:true}))
 app.use(basicAuth({
-    users: {Auth_name:Auth_pass}
+    // users: {
+    //     'learner247@admin.com':'SVusimbiu1223AN'
+    // }
+    users: { [Auth_name]: Auth_pass }
 }))
 const authenticationSecretKey = process.env.AUTH_SECRET_KEY
 const dataSeceretKey=process.env.DATA_SECRET_KEY
@@ -160,7 +165,7 @@ app.post('/verifyOtp',(req,res)=>{
         }
     })
     .then((result)=>{
-        res.status(200).json(result)
+        res.status(200).json({encrypted:encryptText(result,authenticationSecretKey)})
      }).catch((err)=>{
         console.log(err)
         res.send(err)

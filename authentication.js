@@ -9,32 +9,33 @@ const basicAuth = require('express-basic-auth')
 const MongoClient=require('mongodb').MongoClient
 const url =process.env.DB_URL
 const crypto=require('crypto-js')
-const Auth_name=process.env.BASIC_AUTH_USERNAME
-const Auth_pass=process.env.BASIC_AUTH_PASSWORD
 app.use(bodyparser.json({}))
 app.use(bodyparser.urlencoded({
     extended:true
 }))
 app.use(cors({origin:true}))
+const Auth_name=process.env.BASIC_AUTH_NAME
+const Auth_pass=process.env.BASIC_AUTH_PASSWORD
 app.use(basicAuth({
-    users: {
-        Auth_name:Auth_pass
-    }
+    // users: {
+    //     'learner247@admin.com':'SVusimbiu1223AN'
+    // }
+    users: { [Auth_name]: Auth_pass }
+    
 }))
 const authenticationSecretKey = process.env.AUTH_SECRET_KEY
 const dataSeceretKey=process.env.DATA_SECRET_KEY
 const PORT=process.env.PORT||8080
 app.post('/createUser',(req,res)=>{
     return new Promise(async(resolve,reject)=>{
-    let validationSchema=joi.object({
-        name:joi.string().required().min(3).max(40),
-        password:joi.string().required().max(15).min(8),
-        email:joi.string().required().email()
-    })
+    // let validationSchema=joi.object({
+    //     name:joi.string().required().min(3).max(40),
+    //     password:joi.string().required().max(15).min(8),
+    //     email:joi.string().required().email(),
+    // })
     let body=decryptText(req.body.encrypted,authenticationSecretKey)
-    const{error,value}=validationSchema.validate(body)
-    console.log(error,'error')
-    if(error){
+    // const{error,value}=validationSchema.validate(body)
+    if(!body.email || !body.password){
         resolve({message:'Invalid Details'})
     }
     else{
@@ -99,6 +100,7 @@ return new Promise(async(resolve,reject)=>{
         let currentUser=[]
         let getQuery={
             collection:"users",
+            queryParam:{email:body.email}
         }
         let data=[]
         await getData(getQuery).catch((err)=>{
@@ -107,16 +109,12 @@ return new Promise(async(resolve,reject)=>{
            data=result['data']
         })
         if(data.length){
-      currentUser = data.filter((doc)=>{
-        return doc.email==body.email
-      })
-      if(currentUser.length){
-        bcrypt.compare(body.password,currentUser[0].password,(err,result)=>{
+        bcrypt.compare(body.password,data[0].password,(err,result)=>{
             if(err){
                 throw err
             }
             else if(result){
-             resolve({message:'Logged in Successfully',data:currentUser,status:'success'})
+             resolve({message:'Logged in Successfully',data:data,status:'success'})
             }
             else{
                 resolve({message:'Password is Incorrect',status:'failure'})
@@ -126,7 +124,7 @@ return new Promise(async(resolve,reject)=>{
     else{
         resolve({message:'User not Found',status:'failure'})
     } 
-}
+
     }
            
 }).then((response)=>{
@@ -402,4 +400,3 @@ function decryptText(text,password) {
     return JSON.parse(decryptedText);
 }
 app.listen((PORT),()=>{console.log('server is created')})
-console.log(process.env)
