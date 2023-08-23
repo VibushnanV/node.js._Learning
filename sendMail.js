@@ -1,7 +1,7 @@
 require('dotenv').config()
 const nodemailer=require('nodemailer')
 const express=require('express')
-const app=express()
+const app=express.Router()
 const  moment=require('moment')
 const bodyparser=require('body-parser')
 const cors=require('cors')
@@ -11,7 +11,7 @@ const crypto=require('crypto-js')
 const basicAuth = require('express-basic-auth')
 const MongoClient=require('mongodb').MongoClient
 const url =process.env.DB_URL
-const Auth_name=process.env.BASIC_AUTH_USERNAME
+const Auth_name=process.env.BASIC_AUTH_NAME
 const Auth_pass=process.env.BASIC_AUTH_PASSWORD
 app.use(bodyparser.json({}))
 app.use(bodyparser.urlencoded({
@@ -19,9 +19,6 @@ app.use(bodyparser.urlencoded({
 }))
 app.use(cors({origin:true}))
 app.use(basicAuth({
-    // users: {
-    //     'learner247@admin.com':'SVusimbiu1223AN'
-    // }
     users: { [Auth_name]: Auth_pass }
 }))
 const authenticationSecretKey = process.env.AUTH_SECRET_KEY
@@ -313,4 +310,5 @@ function decryptText(text,password) {
     const decryptedText = decrypted.toString(crypto.enc.Utf8);
     return JSON.parse(decryptedText);
 }
-app.listen((PORT),()=>{console.log('server is created')})
+module.exports=app
+// app.listen((PORT),()=>{console.log('server is created')})

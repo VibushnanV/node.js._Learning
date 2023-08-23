@@ -1,6 +1,6 @@
 require('dotenv').config()
 const express=require('express')
-const app=express()
+const app=express.Router()
 const bodyparser=require('body-parser')
 const cors=require('cors')
 const joi=require('joi')
@@ -15,9 +15,6 @@ app.use(cors({origin:true}))
 const Auth_name=process.env.BASIC_AUTH_NAME
 const Auth_pass=process.env.BASIC_AUTH_PASSWORD
 app.use(basicAuth({
-    // users: {
-    //     'learner247@admin.com':'SVusimbiu1223AN'
-    // }
     users: { [Auth_name]: Auth_pass }
     
 }))
@@ -228,4 +225,5 @@ function updateData(param){
         })
     })
 }
-app.listen(Number(PORT),()=>{console.log('server is created at',Number(PORT))})
+module.exports=app
+// app.listen(Number(PORT),()=>{console.log('server is created at',Number(PORT))})

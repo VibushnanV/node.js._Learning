@@ -1,6 +1,6 @@
 require('dotenv').config()
 const express=require('express')
-const app=express()
+const app=express.Router()
 const bodyparser=require('body-parser')
 const cors=require('cors')
 const joi=require('joi')
@@ -17,9 +17,6 @@ app.use(cors({origin:true}))
 const Auth_name=process.env.BASIC_AUTH_NAME
 const Auth_pass=process.env.BASIC_AUTH_PASSWORD
 app.use(basicAuth({
-    // users: {
-    //     'learner247@admin.com':'SVusimbiu1223AN'
-    // }
     users: { [Auth_name]: Auth_pass }
     
 }))
@@ -35,7 +32,7 @@ app.post('/createUser',(req,res)=>{
     // })
     let body=decryptText(req.body.encrypted,authenticationSecretKey)
     // const{error,value}=validationSchema.validate(body)
-    if(!body.email || !body.password){
+    if(!body.email || !body.password || !body.name){
         resolve({message:'Invalid Details'})
     }
     else{
@@ -211,22 +208,34 @@ app.post('/changePassword',(req,res)=>{
                    data=result['data']
                 })
                 if(data && data.length){
-                    bcrypt.hash(body.newPassword,10,async(err,hash)=>{
-                        data[0]['password']=hash
-                        let setQueryParam={
-                            collection:'users',
-                            method:'update',
-                            data:{},
-                            id:{_id:data[0]['_id']}
-                         }
-                         setQueryParam['data']={$set:{password: data[0]['newPassword']}}
-                         await updateData(setQueryParam).then((result)=>{
-                            resolve({status:'success',message:result['updatedId']})
-                         }).catch((err)=>{
+                    bcrypt.compare(body.oldPassword,data[0].password,(err,result)=>{
+                        if(err){
                             console.log(err)
                             resolve({message:err,status:'failure'})
-                         })
-                    }) 
+                        }
+                        else if(result){
+                            bcrypt.hash(body.newPassword,10,async(err,hash)=>{
+                                data[0]['password']=hash
+                                let setQueryParam={
+                                    collection:'users',
+                                    method:'update',
+                                    data:{},
+                                    id:{_id:data[0]['_id']}
+                                 }
+                                 setQueryParam['data']={$set:{password: data[0]['password']}}
+                                 await updateData(setQueryParam).then((result)=>{
+                                    resolve({status:'success',message:result['updatedId']})
+                                 }).catch((err)=>{
+                                    console.log(err)
+                                    resolve({message:err,status:'failure'})
+                                 })
+                            })
+                        }
+                        else{
+                            resolve({message:'old Password is Incorrect',status:'failure'})
+                        }
+                    })
+                
                 }
                 else{
                     resolve({message:'User Not Found',status:'failure'})
@@ -285,11 +294,10 @@ app.post('/deleteUser',(req,res)=>{
 })
 function getData(param){
     return new Promise(async(resolve,reject)=>{
-        MongoClient.connect(url,(err,client)=>{
-            if(err){
-                reject({message:err,status:"failure"})
-            }
-            else{
+        MongoClient.connect(url).catch((err)=>{
+            reject({message:err,status:"failure"})
+        })
+        .then((client)=>{
                 let docRef
                 let collection=param.collection
                 let queryParam=param.queryParam
@@ -325,8 +333,50 @@ function getData(param){
                 client.close()
                 reject({status:"failure",message:"Missing collection Name"})
               }
-            }
-            })
+            
+        })
+        // MongoClient.connect(url,(err,client)=>{
+        //     if(err){
+              
+        //     }
+        //     else{
+        //         let docRef
+        //         let collection=param.collection
+        //         let queryParam=param.queryParam
+        //         let sortFiled=param.sort
+        //         let docCount=param.limit
+        //       const db=client.db('myDB')
+        //       if(collection){
+        //         docRef=db.collection(collection)
+        //         if(queryParam){
+        //            docRef=docRef.find(queryParam)
+        //         }
+        //         else{
+        //             docRef=docRef.find({})
+        //         }
+        //         if(sortFiled){
+        //             docRef=docRef.sort(sortFiled)
+        //         }
+        //         if(docCount){
+        //             docRef=docRef.limit(docCount)
+        //         }
+        //         docRef.toArray((err,result)=>{
+        //             if(err){
+        //                 client.close()
+        //                 reject({status:"failure",message:err})
+        //             }
+        //             else{
+        //                 client.close()
+        //                 resolve({status:'success',data:result})
+        //             }
+        //         })
+            
+        //       }else{
+        //         client.close()
+        //         reject({status:"failure",message:"Missing collection Name"})
+        //       }
+        //     }
+        //     })
     })
 }
 
@@ -399,4 +449,6 @@ function decryptText(text,password) {
     const decryptedText = decrypted.toString(crypto.enc.Utf8);
     return JSON.parse(decryptedText);
 }
-app.listen((PORT),()=>{console.log('server is created')})
+
+// app.listen((PORT),()=>{console.log('server is created')})
+module.exports=app
