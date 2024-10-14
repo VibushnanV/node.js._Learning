@@ -1,25 +1,12 @@
 require('dotenv').config()
 const express=require('express')
 const app=express.Router()
-const bodyparser=require('body-parser')
-const cors=require('cors')
 const joi=require('joi')
-const basicAuth = require('express-basic-auth')
 const MongoClient=require('mongodb').MongoClient
 const url =process.env.DB_URL
-app.use(bodyparser.json({}))
-app.use(bodyparser.urlencoded({
-    extended:true
-}))
-app.use(cors({origin:true}))
-const Auth_name=process.env.BASIC_AUTH_NAME
-const Auth_pass=process.env.BASIC_AUTH_PASSWORD
-app.use(basicAuth({
-    users: { [Auth_name]: Auth_pass }
-    
-}))
-const PORT=process.env.PORT||8080
-
+const webPush=require('web-push')
+const millisecondsInOneHr = 1 * 60 * 60 * 1000
+let dbRef=undefined
 const getSchema = joi.object({
     collection: joi.string().min(1).required(),
     queryParam: joi.object().optional(),
@@ -119,60 +106,137 @@ app.post('/deleteData',(req,res)=>{
         res.send(response)
     })  
 })
-function getData(param){
+const pushscriptionSchema = joi.object({
+    collection: joi.string().min(1).required(),
+    subscription: joi.object().required(),
+    details:joi.object().required()
+});
+app.post('/addSubscribers',(req,res)=>{
     return new Promise(async(resolve,reject)=>{
-        MongoClient.connect(url,(err,client)=>{
-            if(err){
-                reject({message:err,status:"failure"})
-            }
-            else{
-                let docRef
-                let collection=param.collection
-                let queryParam=param.queryParam
-                let sortFiled=param.sort
-                let docCount=param.limit
-              const db=client.db('myDB')
-              if(collection){
-                docRef=db.collection(collection)
-                if(queryParam){
-                   docRef=docRef.find(queryParam)
-                }
-                else{
-                    docRef=docRef.find({})
-                }
-                if(sortFiled){
-                    docRef=docRef.sort(sortFiled)
-                }
-                if(docCount){
-                    docRef=docRef.limit(docCount)
-                }
-                docRef.toArray((err,result)=>{
-                    if(err){
-                        reject({status:"failure",message:err})
+         const{error,value}=pushscriptionSchema.validate(req.body)
+         if(error){
+            console.log(error)
+            resolve({status:'failure',message:'Please send valid parameters'})
+        }
+        else{
+            let dataToadd={collection:req.body.collection,data:{...req.body.subscription,...req.body.details}}
+            let insertParam={...dataToadd,...{method:"insert"}}
+            await updateData(insertParam).catch((err)=>{
+                console.log(err)
+                resolve({status:'failure',message:err})
+            }).then(async(result)=>{
+                resolve(result)
+            })
+        }
+    }).then((response)=>{
+        res.send(response)
+    })  
+})
+
+const notificationSchema = joi.object({
+    email: joi.string().email().required(),
+    payload:joi.object().required()
+});
+app.post('/sendNotification',(req,res)=>{
+    return new Promise(async(resolve,reject)=>{
+        webPush.setVapidDetails(
+            'mailto: vibushvs@gmail.com',
+            process.env.PUBLIC_VAPID_KEY,
+            process.env.PRIVATE_VAPID_KEY 
+        )
+        const{error,value}=notificationSchema.validate(req.body)
+        if(error){
+           console.log(error)
+           resolve({status:'failure',message:'Please send valid parameters'})
+       }
+       else{
+        let body=req.body
+        let subscriptionQuery={
+            collection:"Push_Subscriptions",
+            queryParam:{email:body.email}
+        }
+        await getData(subscriptionQuery).catch((err)=>{
+            console.log(err)
+            resolve({status:'failure',message:err})
+        }).then(async(result)=>{
+            if(result['status']=='success' && result['data'].length){
+                let subscriptions=result['data']
+             let notificationResults=  await Promise.allSettled(subscriptions.map((sub)=>{
+                     webPush.sendNotification(sub,JSON.stringify(body.payload)).catch((err)=>{
+                        console.log(err)
+                     })
+                }))
+                for(let [index,value] of notificationResults.entries()){
+                    if (value.status == "fulfilled") {
+                        resolve({status:"success",message:"Notification sent"})
                     }
                     else{
-                        client.close()
-                        resolve({status:'success',data:result})
+                        resolve({status:"failure",message:`Failed`})
                     }
-                })
+                }
             
-              }else{
-                client.close()
-                reject({status:"failure",message:"Missing collection Name"})
-              }
             }
-            })
+            else{
+                resolve({status:"failure",message:"User is not subscribed for push notication"})
+            }
+        })
+       }
+    }).then((response)=>{
+        res.send(response)
+    })  
+})
+function getData(param){
+    return new Promise(async(resolve,reject)=>{
+        !dbRef? await connetToDB():0
+        if(!dbRef){
+            reject({message:'Connection Failed',status:"failure"}) 
+        }
+     else{
+                        let docRef
+                        let collection=param.collection
+                        let queryParam=param.queryParam
+                        let sortFiled=param.sort
+                        let docCount=param.limit
+                      const db=dbRef.db('myDB')
+                      if(collection){
+                        docRef=db.collection(collection)
+                        if(queryParam){
+                           docRef=docRef.find(queryParam)
+                        }
+                        else{
+                            docRef=docRef.find({})
+                        }
+                        if(sortFiled){
+                            docRef=docRef.sort(sortFiled)
+                        }
+                        if(docCount){
+                            docRef=docRef.limit(docCount)
+                        }
+                        docRef.toArray((err,result)=>{
+                            if(err){
+                                reject({status:"failure",message:err})
+                            }
+                            else{
+                                resolve({status:'success',data:result})
+                            }
+                        })
+                    
+                      }else{
+                        // client.close()
+                        reject({status:"failure",message:"Missing collection Name"})
+                      }
+            }
     })
 }
 
 function updateData(param){
     return new Promise(async(resolve,reject)=>{
-        MongoClient.connect(url,(err,client)=>{
-            if(err){
-                reject({message:err,status:"failure"})
-            }
+        !dbRef?await connetToDB():0
+        if(!dbRef){
+            reject({message:'Connection Failed',status:"failure"}) 
+        }
             else{
-                const db=client.db('myDB')
+                const db=dbRef.db('myDB')
                 let collection=param.collection
                 let dataToUpdate=param.data
                 let method=param.method
@@ -222,8 +286,24 @@ function updateData(param){
                 reject({message:'Collection Name is missing'})   
             }
         }
-        })
     })
 }
+async function connetToDB(){
+    return new Promise(async(resolve,reject)=>{
+        await MongoClient.connect(url).catch((err)=>{
+            dbRef=undefined
+            resolve({dbRef})
+          
+        })
+        .then((client)=>{
+           dbRef=client
+           resolve({dbRef})
+        })
+    })
+
+}
+setTimeout(()=>{
+    dbRef=undefined
+},millisecondsInOneHr)
 module.exports=app
 // app.listen(Number(PORT),()=>{console.log('server is created at',Number(PORT))})

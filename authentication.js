@@ -1,28 +1,15 @@
 require('dotenv').config()
 const express=require('express')
 const app=express.Router()
-const bodyparser=require('body-parser')
-const cors=require('cors')
 const joi=require('joi')
 const bcrypt=require('bcrypt')
-const basicAuth = require('express-basic-auth')
 const MongoClient=require('mongodb').MongoClient
 const url =process.env.DB_URL
 const crypto=require('crypto-js')
-app.use(bodyparser.json({}))
-app.use(bodyparser.urlencoded({
-    extended:true
-}))
-app.use(cors({origin:true}))
-const Auth_name=process.env.BASIC_AUTH_NAME
-const Auth_pass=process.env.BASIC_AUTH_PASSWORD
-app.use(basicAuth({
-    users: { [Auth_name]: Auth_pass }
-    
-}))
+const { reject } = require('bcrypt/promises')
 const authenticationSecretKey = process.env.AUTH_SECRET_KEY
-const dataSeceretKey=process.env.DATA_SECRET_KEY
-const PORT=process.env.PORT||8080
+const millisecondsInOneHr = 1 * 60 * 60 * 1000
+let dbRef=undefined
 app.post('/createUser',(req,res)=>{
     return new Promise(async(resolve,reject)=>{
     // let validationSchema=joi.object({
@@ -94,7 +81,6 @@ return new Promise(async(resolve,reject)=>{
         resolve({message:'Invalid Username or Password',status:'failure'})
     }
     else{
-        let currentUser=[]
         let getQuery={
             collection:"users",
             queryParam:{email:body.email}
@@ -294,100 +280,56 @@ app.post('/deleteUser',(req,res)=>{
 })
 function getData(param){
     return new Promise(async(resolve,reject)=>{
-        MongoClient.connect(url).catch((err)=>{
-            reject({message:err,status:"failure"})
-        })
-        .then((client)=>{
-                let docRef
-                let collection=param.collection
-                let queryParam=param.queryParam
-                let sortFiled=param.sort
-                let docCount=param.limit
-              const db=client.db('myDB')
-              if(collection){
-                docRef=db.collection(collection)
-                if(queryParam){
-                   docRef=docRef.find(queryParam)
-                }
-                else{
-                    docRef=docRef.find({})
-                }
-                if(sortFiled){
-                    docRef=docRef.sort(sortFiled)
-                }
-                if(docCount){
-                    docRef=docRef.limit(docCount)
-                }
-                docRef.toArray((err,result)=>{
-                    if(err){
-                        client.close()
-                        reject({status:"failure",message:err})
-                    }
-                    else{
-                        client.close()
-                        resolve({status:'success',data:result})
-                    }
-                })
-            
-              }else{
-                client.close()
-                reject({status:"failure",message:"Missing collection Name"})
-              }
-            
-        })
-        // MongoClient.connect(url,(err,client)=>{
-        //     if(err){
-              
-        //     }
-        //     else{
-        //         let docRef
-        //         let collection=param.collection
-        //         let queryParam=param.queryParam
-        //         let sortFiled=param.sort
-        //         let docCount=param.limit
-        //       const db=client.db('myDB')
-        //       if(collection){
-        //         docRef=db.collection(collection)
-        //         if(queryParam){
-        //            docRef=docRef.find(queryParam)
-        //         }
-        //         else{
-        //             docRef=docRef.find({})
-        //         }
-        //         if(sortFiled){
-        //             docRef=docRef.sort(sortFiled)
-        //         }
-        //         if(docCount){
-        //             docRef=docRef.limit(docCount)
-        //         }
-        //         docRef.toArray((err,result)=>{
-        //             if(err){
-        //                 client.close()
-        //                 reject({status:"failure",message:err})
-        //             }
-        //             else{
-        //                 client.close()
-        //                 resolve({status:'success',data:result})
-        //             }
-        //         })
-            
-        //       }else{
-        //         client.close()
-        //         reject({status:"failure",message:"Missing collection Name"})
-        //       }
-        //     }
-        //     })
+        !dbRef? await connetToDB():0
+        if(!dbRef){
+            reject({message:'Connection Failed',status:"failure"}) 
+        }
+     else{
+                        let docRef
+                        let collection=param.collection
+                        let queryParam=param.queryParam
+                        let sortFiled=param.sort
+                        let docCount=param.limit
+                      const db=dbRef.db('myDB')
+                      if(collection){
+                        docRef=db.collection(collection)
+                        if(queryParam){
+                           docRef=docRef.find(queryParam)
+                        }
+                        else{
+                            docRef=docRef.find({})
+                        }
+                        if(sortFiled){
+                            docRef=docRef.sort(sortFiled)
+                        }
+                        if(docCount){
+                            docRef=docRef.limit(docCount)
+                        }
+                        docRef.toArray((err,result)=>{
+                            if(err){
+                                reject({status:"failure",message:err})
+                            }
+                            else{
+                                resolve({status:'success',data:result})
+                            }
+                        })
+                    
+                      }else{
+                        // client.close()
+                        reject({status:"failure",message:"Missing collection Name"})
+                      }
+            }
     })
 }
 
 function updateData(param){
     return new Promise(async(resolve,reject)=>{
-        MongoClient.connect(url,(err,client)=>{
-            if(err){
-                reject({message:err,status:"failure"})
-            }
+        !dbRef?await connetToDB():0
+        if(!dbRef){
+            reject({message:'Connection Failed',status:"failure"}) 
+        }
             else{
-                const db=client.db('myDB')
+                const db=dbRef.db('myDB')
                 let collection=param.collection
                 let dataToUpdate=param.data
                 let method=param.method
@@ -437,7 +379,6 @@ function updateData(param){
                 reject({message:'Collection Name is missing'})   
             }
         }
-        })
     })
 }
 function encryptText(text,password) {
@@ -448,7 +389,23 @@ function decryptText(text,password) {
     const decrypted = crypto.AES.decrypt(text, password);
     const decryptedText = decrypted.toString(crypto.enc.Utf8);
     return JSON.parse(decryptedText);
-}
+} 
+ async function connetToDB(){
+    return new Promise(async(resolve,reject)=>{
+        await MongoClient.connect(url).catch((err)=>{
+            dbRef=undefined
+            resolve({dbRef})
+          
+        })
+        .then((client)=>{
+           dbRef=client
+           resolve({dbRef})
+        })
+    })
 
+}
+setTimeout(()=>{
+    dbRef=undefined
+},millisecondsInOneHr)
 // app.listen((PORT),()=>{console.log('server is created')})
 module.exports=app
